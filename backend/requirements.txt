@@ -1,0 +1,21 @@
+numpy<2.0.0
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.5.2
+google-auth==2.35.0
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+google-api-python-client==2.149.0
+python-dotenv==1.0.1
+aiofiles==24.1.0
+httpx==0.27.2
+
+# Vector Database - ChromaDB
+chromadb==0.4.15
+
+# OpenAI for embeddings and chat
+openai==1.51.0
+
+# Additional utilities
+pypdf2==3.0.1
