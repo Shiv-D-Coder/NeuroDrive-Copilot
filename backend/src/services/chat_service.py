@@ -68,13 +68,14 @@ class ChatService:
             raise ValueError("OpenAI client not initialized. Check OPENAI_API_KEY.")
         
         try:
-            # Step 1: Retrieve relevant documents
+            # Step 1: Retrieve relevant documents with quality filtering
             logger.info(f"Processing chat message: {request.message}")
             sources = await search_documents(
                 query=request.message,
                 folder_id=request.folder_id,
                 file_id=request.file_id,
-                limit=5
+                limit=15,  # Retrieve more chunks for comprehensive answers
+                relevance_threshold=0.30  # Slightly lower threshold to get more context
             )
             
             # Step 2: Build context from sources
@@ -103,30 +104,46 @@ class ChatService:
 
     def _build_context(self, sources: List[SearchResult]) -> str:
         """
-        Build context string from search results.
+        Build comprehensive context string from search results.
+        Groups chunks by file to provide better context.
 
         Args:
             sources: List of SearchResult objects
 
         Returns:
-            Formatted context string
+            Formatted context string with complete information
         """
         if not sources:
             return "No relevant documents found in your Google Drive."
         
-        context_parts = []
+        # Group sources by file to provide complete context
+        file_contexts = {}
+        for source in sources:
+            file_name = source.file.name
+            if file_name not in file_contexts:
+                file_contexts[file_name] = {
+                    'path': source.file.path,
+                    'snippets': []
+                }
+            file_contexts[file_name]['snippets'].append(source.snippet)
         
-        for i, source in enumerate(sources, 1):
+        # Build comprehensive context
+        context_parts = []
+        for i, (file_name, data) in enumerate(file_contexts.items(), 1):
+            # Combine all snippets from the same file
+            combined_content = "\n\n".join(data['snippets'])
             context_parts.append(
-                f"[Source {i}] From '{source.file.name}' ({source.file.path}):\n"
-                f"{source.snippet}\n"
+                f"[Document {i}] '{file_name}' ({data['path']}):\n"
+                f"{combined_content}\n"
             )
         
-        return "\n\n".join(context_parts)
+        return "\n\n---\n\n".join(context_parts)
 
     async def _generate_response(self, message: str, context: str, history: List = None) -> str:
         """
-        Generate LLM response given message, context, and history using OpenAI GPT.
+        Generate LLM response using Chain-of-Thought prompting for multi-step reasoning.
+
+        The model uses internal CoT reasoning but only outputs the final answer to the user.
 
         Args:
             message: User's question
@@ -134,13 +151,67 @@ class ChatService:
             history: Optional conversation history
 
         Returns:
-            Generated response text
+            Generated response text (final answer only, no reasoning steps shown)
         """
-        # Build messages for OpenAI chat completion
+        # Build messages for OpenAI chat completion with improved CoT prompting
         messages = [
             {
                 "role": "system",
-                "content": """You are a helpful assistant that answers questions about documents in a Google Drive. Use the provided context to answer questions accurately. Always cite your sources by mentioning the document name. If the answer isn't in the context, say so clearly. Be concise and helpful."""
+                "content": """You are an expert assistant that provides comprehensive, detailed answers about documents in Google Drive.
+
+CRITICAL INSTRUCTIONS:
+
+1. **THOROUGH INFORMATION EXTRACTION**:
+   - Read ALL provided document content carefully and completely
+   - Extract EVERY relevant piece of information, not just the first thing you see
+   - If multiple chunks from the same document are provided, synthesize them together
+   - Look for: numbers, dates, names, amounts, percentages, timelines, lists, categories
+   - Don't stop at the first answer - check if there's more information in other parts
+
+2. **COMPREHENSIVE ANSWERS**:
+   - Provide DETAILED, COMPLETE answers (aim for 3-6 paragraphs for substantial questions)
+   - Include ALL relevant information from the documents, not just a summary
+   - For questions about specific documents (e.g., "what's in the budget file"), provide a COMPLETE overview
+   - List specific details: numbers, items, categories, dates, etc.
+   - Structure longer answers with clear organization (use natural paragraphs, not bullet points unless specifically requested)
+
+3. **SYNTHESIS ACROSS CHUNKS**:
+   - If information is spread across multiple chunks from the same document, combine them
+   - Present a unified, coherent answer that brings all pieces together
+   - Don't treat chunks as separate - they're parts of the same document
+
+4. **OUTPUT FORMAT**:
+   - Provide ONLY your final comprehensive answer (no "Step 1", "Step 2" labels)
+   - Use natural, flowing paragraphs
+   - Cite sources naturally: "According to the Budget document..." or "The Budget file shows..."
+   - Be thorough but readable - organize information logically
+
+5. **DIRECT QUESTIONS ABOUT FILES**:
+   - For questions like "what's in [filename]" or "tell me about [filename]":
+     * Provide a COMPLETE summary of the document's contents
+     * Include ALL major sections, categories, and key information
+     * List specific numbers, amounts, dates, and details
+     * Be comprehensive - this is the user asking for the full picture
+
+6. **SPECIFIC INFORMATION QUERIES**:
+   - For questions like "what is my budget" or "what are the costs":
+     * Extract ALL relevant numbers and details
+     * Provide complete breakdowns if available
+     * Include totals, subtotals, categories, and line items
+     * Don't just mention that information exists - provide the actual data
+
+7. **ACCURACY & COMPLETENESS**:
+   - Never make up information not in the documents
+   - If you find relevant information, include ALL of it, not just part
+   - Be precise with numbers, dates, and specific details
+   - If information seems incomplete, say so, but provide everything that IS available
+
+8. **RELEVANCE CHECK**:
+   - ONLY use information from documents that actually relate to the question
+   - If NO documents are relevant, clearly state: "I couldn't find information about [topic] in the provided documents."
+   - But if documents ARE relevant, extract EVERYTHING relevant from them
+
+REMEMBER: Users want COMPLETE, DETAILED answers. Don't be brief when there's more information available. Extract and present ALL relevant content from the documents."""
             }
         ]
         
@@ -152,15 +223,27 @@ class ChatService:
                     "content": msg.content
                 })
         
-        # Add current question with context
-        user_message = f"Context from Google Drive:\n{context}\n\nUser Question: {message}"
+        # Add current question with improved prompt
+        user_message = f"""Context from Google Drive:
+{context}
+
+User Question: {message}
+
+Instructions: 
+- Read ALL the provided content from the documents above
+- Extract EVERY piece of relevant information (numbers, details, categories, etc.)
+- If multiple chunks from the same document are shown, synthesize them together
+- Provide a COMPREHENSIVE, DETAILED answer with all the information available
+- Cite documents naturally in your response
+- Be thorough - include all relevant details, not just a brief summary"""
+        
         messages.append({
             "role": "user",
             "content": user_message
         })
         
         try:
-            # Generate response using OpenAI
+            # Generate response using OpenAI with CoT prompting
             response = self.openai_client.chat.completions.create(
                 model=self.model,
                 messages=messages,
