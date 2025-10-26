@@ -592,27 +592,10 @@ We welcome contributions! Please follow these guidelines:
 
 ---
 
-## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
----
+## RAG documentation 
 
-## Acknowledgments
-
-- OpenAI for GPT-4o and embeddings API
-- ChromaDB for vector database
-- Sentence Transformers for reranking models
-- FastAPI and React communities
-
----
-
-## Support
-
-For questions, issues, or feature requests:
-
-- 📧 Email: support@neurodrive-copilot.com
-- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/neurodrive-copilot/issues)
 - 📖 Documentation: [Full RAG Specification](backend/ADVANCED_RAG_IMPLEMENTATION.md)
 
 ---
