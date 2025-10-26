@@ -17,5 +17,12 @@ chromadb==0.4.15
 # OpenAI for embeddings and chat
 openai==1.51.0
 
+# Pin HF hub to version that still provides cached_download (required by s-t 2.2.2)
+huggingface_hub==0.14.1
+
+# Hybrid Search & Reranking
+rank-bm25==0.2.2
+sentence-transformers==2.2.2
+
 # Additional utilities
 pypdf2==3.0.1
